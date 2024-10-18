@@ -1,46 +1,35 @@
 #https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en
 import random
-import torch
-import torchaudio
+
 from einops import rearrange
 from stable_audio_tools import get_pretrained_model
 from stable_audio_tools.inference.generation import generate_diffusion_cond
 import numpy as np
 import soundfile as sf
+import upload_video
+import cv2
+from pydub import AudioSegment
 import warnings
+import openai
+import json
+from googleapiclient.discovery import build
 import requests
 from bs4 import BeautifulSoup
+import assemblyai as aai
 import google.generativeai as genai
 from openai import OpenAI
-import time
-import os
-import pyttsx3
-from diffusers import StableDiffusionPipeline
-import torch
 from moviepy.editor import *
 from moviepy.editor import ImageClip, VideoFileClip, concatenate_videoclips
-import torch
-from diffusers import StableDiffusion3Pipeline
-from mutagen.mp3 import MP3
 import re
-from transformers import VitsModel, AutoTokenizer
 import torch
-import scipy
 from moviepy.editor import VideoFileClip, AudioFileClip, CompositeAudioClip, concatenate_videoclips
 from huggingface_hub import login
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 import time
 from tiktok_uploader.browsers import get_browser
-import selenium
 from tiktok_uploader.auth import AuthBackend
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import json
-import selenium.common.exceptions
 import tiktok_uploader
 import tiktok_uploader.upload
 
@@ -72,7 +61,7 @@ def postvid(description):
 
 
     # Navigate to the upload page after login
-    driver.get('https://www.tiktok.com/upload')
+    driver.get('https://www.tiktok.com/tiktokstudio/upload?from=upload')
 
     # Add delay to load the upload page
     time.sleep(12)
@@ -95,11 +84,36 @@ def postvid(description):
     time.sleep(15)
 
     # Locate the caption input and set the caption text
+
+    lookingforspace = False
+    count = 0
+    newTitle = ""
+    for letter in description + " ":
+        if lookingforspace == False:
+            if letter == "#":
+                lookingforspace = True
+
+        if lookingforspace:
+            if letter == " ":
+                lookingforspace = False
+                newTitle += f"{Keys.TAB}"
+
+        newTitle += letter
+
+
+        count+= 1
+
+    print(newTitle)
+
+
     caption_input = driver.find_element(By.XPATH, '//div[@contenteditable="true"]')
     caption_input.click()
     for _ in range(25):  # Adjust the range for how many characters you want to delete
         caption_input.send_keys(Keys.BACKSPACE)
-    caption_input.send_keys(description)
+    for letter in newTitle:
+        if letter == f"{Keys.TAB}":
+            time.sleep(3)
+        caption_input.send_keys(letter)
 
     # Add delay if needed for reviewing the upload
     time.sleep(10)
@@ -138,7 +152,7 @@ def getHashtags():
     return hashlist
 
 def checkhashtagvalue(hashtag):
-    genai.configure(api_key='PUT YOUR API KEY')
+    genai.configure(api_key='YOUR_API_KEY')
     model = genai.GenerativeModel("gemini-1.5-flash")
     response = model.generate_content("Using ONLY 0-100 please rate this theme on how easy it would be to make a ai generated video on. "
                                       "100 should be a theme that is not to broad, easy for ai to make a script, and"
@@ -158,51 +172,105 @@ def clean_text(text):
     return '\n'.join(cleaned_lines)
 
 def makeScript(hashtag):
-    try:
-        client = OpenAI(
-            # This is the default and can be omitted
-            api_key="PUT YOUR API KEY"
-        )
+    openai.api_key = 'YOUR_API_KEY'
 
-        response = client.chat.completions.create(
+    # Define the function schema
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": "Search the web for information that you don't know or need more info on. For example: a game that you don't know about, a move, or some news.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "What do you want to search?"
+                        }
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False
+                }
+            }
+        }
+    ]
+
+    # Define your Python function
+    def searchWeb(query):
+        # This could call a real weather API
+        import pprint
+
+        my_api_key = "YOUR_API_KEY"
+        my_cse_id = "42c29767c44894cd3"
+
+        def google_search(search_term, api_key, cse_id, amount):
+            service = build("customsearch", "v1", developerKey=api_key)
+            res = service.cse().list(q=search_term, cx=cse_id, num=amount).execute()
+            service = build("customsearch", "v1", developerKey=api_key)
+            res2 = service.cse().list(q=search_term, cx=cse_id, num=amount).execute()
+            service = build("customsearch", "v1", developerKey=api_key)
+            res3 = service.cse().list(q=search_term, cx=cse_id, num=amount).execute()
+            service = build("customsearch", "v1", developerKey=api_key)
+            res4 = service.cse().list(q=search_term, cx=cse_id, num=amount).execute()
+            service = build("customsearch", "v1", developerKey=api_key)
+            res5 = service.cse().list(q=search_term, cx=cse_id, num=amount).execute()
+            return res['items'] + res2['items'] + res3['items'] + res4['items'] + res5['items']
+
+        results = google_search(
+            query, my_api_key, my_cse_id, 10)
+        formatted_results = []
+        for result in results:
+            formatted_results.append({"title": result["title"], "snippet": result["snippet"], "url": result["link"]})
+
+        print(formatted_results)
+        return formatted_results
+
+    # Generate a response with function call
+    response = openai.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system",
+             "content": "You are a expert tiktok script writer. You only give scripts that will be read out loud. This means not talking about the scene or what should be displayed. You also dont make future promises. The script you make will have all of the information you want to talk about. It will not talk about diving into a future video."},
+            {
+                "role": "user",
+                "content": "Please write a TikTok script based on the theme I’ll provide. The script should be 60 to 90 seconds long. starting with a strong hook that reappears later for continuity. It must be engaging, concise, and suitable for TikTok. Avoid false claims or personal anecdotes. Aim for informative content, and provide only the spoken script without any additional comments or directions. The content should be appropriate for all audiences and align with TikTok’s guidelines. Please do not talk about the scene. Only talk about the script. You also will not put # at the end. Lastly this is a stand alone video meaning the video should not talk about other videos. If you don't know what it is please search it. If you do search it please still make a script on it using the past criteria. For example the script should still be 60-90 seconds long. Here is the script: " + hashtag,
+            }
+        ],
+        tools=tools,  # Let GPT decide when to call the function
+    )
+    # Check if GPT called the function
+    if response.choices[0].finish_reason == "tool_calls":
+        print(response.choices[0].message)
+        webfound = searchWeb(eval(response.choices[0].message.tool_calls[0].function.arguments)["query"])
+        function_call_result_message = {
+            "role": "tool",
+            "content": json.dumps({
+                "query": webfound
+            }),
+            "tool_call_id": response.choices[0].message.tool_calls[0].id
+        }
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a expert tiktok script writer. You only give scripts that will be read out loud. This means not talking about the scene or what should be displayed."},
+                {"role": "system",
+                 "content": "You are a expert tiktok script writer. You only give scripts that will be read out loud. This means not talking about the scene or what should be displayed. You also dont make future promises. The script you make will have all of the information you want to talk about. It will not talk about diving into a future video."},
                 {
                     "role": "user",
-                    "content": "Please write a TikTok script based on the theme I’ll provide. The script should be 60 to 90 seconds long . starting with a strong hook that reappears later for continuity. It must be engaging, concise, and suitable for TikTok. Avoid false claims or personal anecdotes. Aim for informative content, and provide only the spoken script without any additional comments or directions. The content should be appropriate for all audiences and align with TikTok’s guidelines. Please do not talk about the scene. Only talk about the script. You also will not put # at the end. Here is the script: " + hashtag,
-                }
-            ],
-            model="gpt-3.5-turbo"
-            , stream=False
-            , max_tokens=250
+                    "content": "Please write a TikTok script based on the theme I’ll provide. The script should be 60 to 90 seconds long. starting with a strong hook that reappears later for continuity. It must be engaging, concise, and suitable for TikTok. Avoid false claims or personal anecdotes. Aim for informative content, and provide only the spoken script without any additional comments or directions. The content should be appropriate for all audiences and align with TikTok’s guidelines. Please do not talk about the scene. Only talk about the script. You also will not put # at the end. Lastly this is a stand alone video meaning the video should not talk about other videos. If you don't know what it is please search it. If you do search it please still make a script on it using the past criteria. For example the script should still be 60-90 seconds long. If you search it, the search script should be about a search result of your choice (you could even combine multible). Here is the script: " + hashtag,
+                },
+                response.choices[0].message,
+                function_call_result_message,
+            ]
         )
-        returnscript = clean_text(response.choices[0].message.content)
-        print(returnscript)
-        return (returnscript)
-    except:
-        client = OpenAI(
-            # This is the default and can be omitted
-            api_key="PUT YOUR API KEY"
-        )
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a expert tiktok script writer. You only give scripts that will be read out loud. This means not talking about the scene or what should be displayed."},
-                {
-                    "role": "user",
-                    "content": "Please write a TikTok script based on the theme I’ll provide. The script should be 60 to 90 seconds long . starting with a strong hook that reappears later for continuity. It must be engaging, concise, and suitable for TikTok. Avoid false claims or personal anecdotes. Aim for informative content, and provide only the spoken script without any additional comments or directions. The content should be appropriate for all audiences and align with TikTok’s guidelines. Please do not talk about the scene. Only talk about the script. You also will not put # at the end. Here is the script: " + hashtag,
-                }
-            ],
-            model="gpt-3.5-turbo"
-            , stream=False
-            , max_tokens=250
-        )
-        returnscript = clean_text(response.choices[0].message.content)
-        print(returnscript)
-        return (returnscript)
 
-def makeImage(prompt):
+    # Output the final response
+    print(response.choices[0].message)
+    return response.choices[0].message.content
+
+def makeImage(prompt, i):
     try:
-        genai.configure(api_key='PUT YOUR API KEY')
+        genai.configure(api_key='YOUR_API_KEY')
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content("I am about to give you a sentence. I want you to describe this sentence if it was a image. What you say will be used to generate a image. "
                                           "So, you need to make a detailed description of the image you think would fit this sentence."
@@ -213,7 +281,7 @@ def makeImage(prompt):
         print(response.text)
     except:
         time.sleep(60)
-        genai.configure(api_key='PUT YOUR API KEY')
+        genai.configure(api_key='YOUR_API_KEY')
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(
             "I am about to give you a sentence. I want you to describe this sentence if it was a image. What you say will be used to generate a image. "
@@ -225,21 +293,22 @@ def makeImage(prompt):
 
         print(response.text)
     # Load the model with torch_dtype set to float16 for better performance
-    url = "https://api.getimg.ai/v1/stable-diffusion/text-to-image"
+    url = "https://api.getimg.ai/v1/stable-diffusion-xl/text-to-image"
 
     payload = {
-        "model": "synthwave-punk-v2",
+        "model": "real-cartoon-xl-v6",
         "width": 768,
         "height": 768,
         "steps": 90,
         "output_format": "png",
         "response_format": "url",
-        "prompt": response.text
+        "prompt": response.text,
+        "negative_prompt": "Disfigured, blurry, nude"
     }
     headers = {
         "accept": "application/json",
         "content-type": "application/json",
-        "authorization": "Bearer PUT YOUR API KEY"
+        "authorization": "Bearer YOUR_API_KEY"
     }
 
     response = requests.post(url, json=payload, headers=headers)
@@ -256,7 +325,7 @@ def makeImage(prompt):
     # Check if the request was successful (status code 200)
     if response.status_code == 200:
         # Open a file in write-binary mode and save the image
-        with open("generated_image_Tiktok.png", "wb") as file:
+        with open(f"generated_image_Tiktok_{i}.png", "wb") as file:
             file.write(response.content)
         print("Image downloaded successfully!")
     else:
@@ -265,18 +334,25 @@ def makeImage(prompt):
 def makeTTS(text, i):
     client = OpenAI(
         # This is the default and can be omitted
-        api_key="PUT YOUR API KEY"
+        api_key="YOUR_API_KEY"
     )
 
     response = client.audio.speech.create(
         model="tts-1",
         voice="nova",
-        input=text
+        input=text,
+
     )
 
     with open(f"voiceForTiktok_{i}.wav", "wb") as f:
         f.write(response.content)
 
+    audio = AudioSegment.from_file(f"voiceForTiktok_{i}.wav")
+
+    audio = audio + 5
+
+    # Export the amplified audio back to the file
+    audio.export(f"voiceForTiktok_{i}.wav", format="wav")
     print(f"voiceForTiktok_{i}.wav")
 
 def split_string_at_nearest_space(text, max_length=30):
@@ -307,7 +383,7 @@ def split_string_at_nearest_space(text, max_length=30):
 
 def makeTitle(script, hashtag):
     try:
-        genai.configure(api_key='PUT YOUR API KEY')
+        genai.configure(api_key='YOUR_API_KEY')
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content("I am going to give you a script here soon. I want you to take this script which is"
                                           " made for a video and make a video title for the script. Use hashtags, keywords, and make it instesting"
@@ -316,7 +392,7 @@ def makeTitle(script, hashtag):
         print(response.text)
     except:
         time.sleep(60)
-        genai.configure(api_key='PUT YOUR API KEY')
+        genai.configure(api_key='YOUR_API_KEY')
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content("I am going to give you a script here soon. I want you to take this script which is"
                                           " made for a video and make a video title for the script. Use hashtags, keywords, and make it instesting"
@@ -328,7 +404,7 @@ def makeTitle(script, hashtag):
 def MakeBackgroundSound(script, t):
 
     try:
-        genai.configure(api_key='PUT YOUR API KEY')
+        genai.configure(api_key='YOUR_API_KEY')
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(
             "Using the script I am about to give you describe a sound for. For example a 128 BPM tech house drum loop."
@@ -338,16 +414,14 @@ def MakeBackgroundSound(script, t):
         print(response.text)
     except:
         time.sleep(60)
-        genai.configure(api_key='PUT YOUR API KEY')
+        genai.configure(api_key='YOUR_API_KEY')
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(
             "Using the script I am about to give you describe a sound for. For example a 128 BPM tech house drum loop."
-            " Please only respond with your answer. I repeat nothing else but the music description. I repeat nothing else but the music description. Make it less than 20 characters. Here is the script: "
+            " Please only respond with your answer. I repeat nothing else but the music description. I repeat nothing else but the music description. Make it less than 20 characters. . Here is the script: "
             f"{script}.")
 
         print(response.text)
-
-
 
     warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -364,7 +438,7 @@ def MakeBackgroundSound(script, t):
 
     # Set up text and timing conditioning
     conditioning = [{
-        "prompt": response.text,
+        "prompt": "128 BPM tech house drum loop",
         "seconds_start": 0,
         "seconds_total": t
     }]
@@ -390,11 +464,10 @@ def MakeBackgroundSound(script, t):
     # Rearrange audio batch to a single sequence
     output = rearrange(output, "b d n -> d (b n)")
 
+
     # Peak normalize, clip, convert to float32 for saving
     output = output.to(torch.float32).div(torch.max(torch.abs(output))).clamp(-1, 1).cpu().numpy()
 
-    gain_factor = 0.2  # Set to 0.5 for half volume or 2.0 for double volume
-    output *= gain_factor
     # Ensure correct shape for mono/stereo
     if output.ndim == 1:
         output = output[None, :]  # Reshape to (1, num_samples) for mono
@@ -403,12 +476,147 @@ def MakeBackgroundSound(script, t):
     output = output.astype(np.float32)
 
     # Save using soundfile (can save as .wav, .flac, etc.)
-    sf.write("background.wav", output.T, sample_rate)
+    sf.write("output.wav", output.T, sample_rate)
+
+    audio = AudioSegment.from_file(f"output.wav")
+
+    audio = audio - 4
+
+    # Export the amplified audio back to the file
+    audio.export(f"output.wav", format="wav")
+    print(f"output.wav")
+
+def giggle_zoom_effect(image_path, output_path, duration, fps=24, amplitude=5, zoom_range=(1.0, 1.3)):
+    # Load the image as a clip
+    clip = ImageClip(image_path).set_duration(duration)
+
+    # Define a function that adds random translations and zoom (for the giggle effect)
+    def apply_giggle_zoom(get_frame, t):
+        # Get the original image frame
+        frame = get_frame(t)
+        h, w, _ = frame.shape
+
+        # Create random translations
+        tx = amplitude * np.sin(2 * np.pi * t * 2)  # Horizontal wobble
+        ty = amplitude * np.cos(2 * np.pi * t * 2)  # Vertical wobble
+
+        # Determine the zoom factor
+        zoom_factor = np.interp(t, [0, duration], zoom_range)  # Zoom in from zoom_range[0] to zoom_range[1]
+
+        # Resize the frame for zoom effect
+        frame = cv2.resize(frame, (int(w * zoom_factor), int(h * zoom_factor)))
+
+        # Calculate the new position to keep the image centered after zooming
+        new_h, new_w, _ = frame.shape
+        x_offset = (new_w - w) // 2
+        y_offset = (new_h - h) // 2
+
+        # Create transformation matrix for translation
+        translation_matrix = np.float32([[1, 0, tx - x_offset], [0, 1, ty - y_offset]])
+
+        # Apply the translation after zoom
+        frame = cv2.warpAffine(frame, translation_matrix, (w, h))
+
+        return frame
+
+    # Apply the giggle and zoom effect
+    giggle_zoom_clip = clip.fl(apply_giggle_zoom)
+
+    # Write the result as a video or gif
+    giggle_zoom_clip.write_videofile(output_path, fps=fps)
+
+
+# Example usage:
+
 
 que = input("How many vids do you want to make: ")
-if que == "post":
-    title = makeTitle("Ever wondered why the phases of the moon seem to have a rhythm of their own? Stick around to uncover the fascinating connection between the moon and music. 🌕🎶 Did you know that ancient civilizations used the moon's cycle as a natural way to track time and create musical patterns? It's like a celestial symphony playing out in the night sky. So, the next time you gaze up at the glowing moon, remember that its influence extends beyond the tides and into the realm of music. Stay tuned for more cosmic insights and let the moon's melodies serenade your soul. 🌙🎵✨", "# moonmusic")
-    postvid(title)
+if que == "youtube":
+    title = "Dashain: Celebrating Victory & Togetherness | #HappyDashain #NepaliCulture #FestivalVibes"
+    upload_video.upload_Video_youtube(title, title)
+elif que == "post":
+    title = makeTitle("Get ready to hit a grand slam at the Los Angeles Dogers. Whether you're a die hard fan or just getting into baseball, the Dodgers have a long history of success and excitement waiting for. From Epic games to fan favorites, the Dodgers bring the heat on and off the field. From Epic games to fan favorites, the Dodgers bring the heat on and off the field. Follow the official Dodgers accounts on Twitter, Instagram and more to be part of the action. Don't miss out on being part of the Dodger Blue family.", "#Dodger ")
+    cleaned_text = title.replace("*", "")
+    postvid(cleaned_text)
+    upload_video.upload_Video_youtube(cleaned_text, cleaned_text)
+elif que == "c":
+    mainhash = ["#5lifehacks", 0]
+    script = "Introducing five incredible life hacks that will revolutionize your daily routine. Stay tuned for some mind-blowing tips! Let's dive in:\n\nLife Hack #1: Discover a genius trick to detangle your headphones effortlessly.\nLife Hack #2: Learn how to remove stubborn sticker residue like a pro.\nLife Hack #3: Find out a quick way to check if your sunglasses are polarized.\nLife Hack #4: Say goodbye to water stains in wood using a surprising household item.\nLife Hack #5: Transform hard butter into baking-ready softness in seconds with a simple tool.\n\nGet ready to upgrade your life with these game-changing hacks. Try them out and thank me later!"
+    sentences = re.split(r'(?<=[.!?])\s+', script)
+    clipArray = []
+    count = -1
+    for sen in sentences:
+        count += 1
+        result = split_string_at_nearest_space(sen)
+        try:
+            audio = AudioFileClip(f"voiceForTiktok_{count}.wav")
+        except:
+            makeTTS(sen, count)
+        try:
+            audio = AudioFileClip(f"voiceForTiktok_{count}.wav")
+        except OSError as e:
+            audio = None
+            print(e)
+
+        try:
+            vid_clip = VideoFileClip(f"generated_image_Tiktok_{count}_giggle.mp4")
+        except:
+            makeImage(sen, count)
+            giggle_zoom_effect(
+                rf"C:\Users\jgdiv\PycharmProjects\pythonProject\tiktokAutoPoster\generated_image_Tiktok_{count}.png",
+                rf"generated_image_Tiktok_{count}_giggle.mp4", duration=audio.duration)
+        print(sen)
+        if audio != None:
+            vid_clip = VideoFileClip(f"generated_image_Tiktok_{count}_giggle.mp4")
+            screen_size = (1280, 720)
+            result_text = "\n".join(result)
+
+            aai.settings.api_key = "YOUR_API_KEY"
+            transcriber = aai.Transcriber()
+
+            transcript = transcriber.transcribe(f"voiceForTiktok_{count}.wav")
+            # transcript = transcriber.transcribe("./my-local-audio-file.wav")
+
+            print(transcript.words)
+            text_clips = []
+            for word in transcript.words:
+                text_clip = TextClip(word.text, fontsize=100, color='cyan ', stroke_color="black", method='caption',
+                                     size=screen_size)
+                text_clip = text_clip.set_position('center')
+                text_clip = text_clip.set_start(word.start / 1000)
+                text_clip = text_clip.set_duration(word.end / 1000 - word.start / 1000)
+                text_clip.audio = audio
+                text_clips.append(text_clip)
+            video = CompositeVideoClip([vid_clip] + text_clips)
+            clipArray.append(video)
+    video_clips = []
+
+    first = True
+    # Loop through each video path and load the video
+    for video in clipArray:
+
+        # If it's not the first video, apply crossfade transition
+        if first:
+            first = False
+        else:
+            video = video.crossfadein(1.5)
+
+        # Append the processed video to the list
+        video_clips.append(video)
+    final_clip = concatenate_videoclips(video_clips, method="compose")
+    try:
+        background_music = AudioFileClip("output.wav")
+        background_music = background_music.set_duration(final_clip.duration)
+    except:
+        MakeBackgroundSound(script=script, t=final_clip.duration)
+        background_music = AudioFileClip("output.wav")
+        background_music = background_music.set_duration(final_clip.duration)
+    combined_audio = CompositeAudioClip([final_clip.audio, background_music])
+    final_clip = final_clip.set_audio(combined_audio)
+    final_clip.write_videofile("output_video.mp4", codec='libx264', fps=24)
+    title = makeTitle(script, mainhash[0])
+    cleaned_text = title.replace("*", "")
+    postvid(cleaned_text)
+    upload_video.upload_Video_youtube(cleaned_text, cleaned_text)
 else:
     que = int(que)
     if(input("do you want to use your own hashtag? t = yes f = no: ").lower() != "t"):
@@ -424,9 +632,10 @@ else:
             print(value)
             try:
                 value = int(value)
-                if (value > mainhash[1]):
-                    mainhash[0] = hashs[i]
-                    mainhash[1] = value
+                if (value >= mainhash[1]):
+                    if random.randint(1, 2) == 1:
+                        mainhash[0] = hashs[i]
+                        mainhash[1] = value
             except:
                 value = 0
                 if (value > mainhash[1]):
@@ -443,31 +652,60 @@ else:
         for sen in sentences:
             count += 1
             makeTTS(sen, count)
-            makeImage(sen)
-            print(sen)
             try:
                 audio = AudioFileClip(f"voiceForTiktok_{count}.wav")
             except OSError as e:
                 audio = None
                 print(e)
-            if(audio != None):
-                image_clip = ImageClip("generated_image_Tiktok.png")
-                image_clip = image_clip.set_duration(audio.duration)
+            makeImage(sen, count)
+            giggle_zoom_effect(
+                rf"C:\Users\jgdiv\PycharmProjects\pythonProject\tiktokAutoPoster\generated_image_Tiktok_{count}.png",
+                rf"generated_image_Tiktok_{count}_giggle.mp4", duration=audio.duration)
+            print(sen)
+            if audio != None:
+                vid_clip = VideoFileClip(f"generated_image_Tiktok_{count}_giggle.mp4")
                 screen_size = (1280, 720)
                 result = split_string_at_nearest_space(sen)
                 result_text = "\n".join(result)
-                text_clip = TextClip(result_text, fontsize = 45, color = 'cyan ', stroke_color="black", method='caption', size=screen_size)
-                text_clip = text_clip.set_position('center')
-                text_clip = text_clip.set_duration(audio.duration)
-                text_clip.audio = audio
-                video = CompositeVideoClip([image_clip, text_clip])
+
+                aai.settings.api_key = "YOUR_API_KEY"
+                transcriber = aai.Transcriber()
+
+                transcript = transcriber.transcribe(f"voiceForTiktok_{count}.wav")
+                text_clips = []
+                for word in transcript.words:
+                    text_clip = TextClip(word.text, fontsize=100, color='cyan ', stroke_color="black", method='caption',
+                                         size=screen_size)
+                    text_clip = text_clip.set_position('center')
+                    text_clip = text_clip.set_start(word.start / 1000)
+                    text_clip = text_clip.set_duration(word.end / 1000 - word.start / 1000)
+                    text_clip.audio = audio
+                    text_clips.append(text_clip)
+                video = CompositeVideoClip([vid_clip] + text_clips)
                 clipArray.append(video)
-        final_clip = concatenate_videoclips(clipArray)
+
+        video_clips = []
+
+        first = True
+        # Loop through each video path and load the video
+        for video in clipArray:
+
+            # If it's not the first video, apply crossfade transition
+            if first:
+                first = False
+            else:
+                video = video.crossfadein(1.5)
+
+            # Append the processed video to the list
+            video_clips.append(video)
+        final_clip = concatenate_videoclips(video_clips, method="compose")
         MakeBackgroundSound(script=script, t=final_clip.duration)
-        background_music = AudioFileClip("background.wav")
+        background_music = AudioFileClip("output.wav")
         background_music = background_music.set_duration(final_clip.duration)
         combined_audio = CompositeAudioClip([final_clip.audio, background_music])
         final_clip = final_clip.set_audio(combined_audio)
         final_clip.write_videofile("output_video.mp4", codec='libx264', fps=24)
         title = makeTitle(script, mainhash[0])
-        postvid(title)
+        cleaned_text = title.replace("*", "")
+        postvid(cleaned_text)
+        upload_video.upload_Video_youtube(cleaned_text, cleaned_text)
