@@ -346,13 +346,6 @@ def makeTTS(text, i):
 
     with open(f"voiceForTiktok_{i}.wav", "wb") as f:
         f.write(response.content)
-
-    audio = AudioSegment.from_file(f"voiceForTiktok_{i}.wav")
-
-    audio = audio + 5
-
-    # Export the amplified audio back to the file
-    audio.export(f"voiceForTiktok_{i}.wav", format="wav")
     print(f"voiceForTiktok_{i}.wav")
 
 def split_string_at_nearest_space(text, max_length=30):
